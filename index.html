@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>多Sheet Excel 高级合并汇总工具 v4</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: "Microsoft YaHei", sans-serif; }
+        body { background: #f0f2f5; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h2 { margin: 20px 0 10px; color: #333; }
+        input[type="file"] { margin: 15px 0; padding: 10px; border: 1px dashed #aaa; border-radius: 6px; width: 100%; cursor: pointer; }
+        .sheet-grid { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
+        .sheet-item { padding: 8px 15px; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; user-select: none; background: #f9f9f9; transition: all 0.2s; }
+        .sheet-item.selected { background: #d4edda; border-color: #28a745; }
+        .sheet-item input { margin-right: 6px; }
+        .column-group { display: flex; flex-wrap: wrap; gap: 20px; margin: 15px 0; }
+        .column-card { border: 1px solid #ddd; border-radius: 8px; padding: 15px; min-width: 220px; background: #fafafa; }
+        .column-card h4 { color: #1a73e8; margin-bottom: 8px; font-size: 15px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .column-card label { display: block; margin: 4px 0; cursor: pointer; }
+        .sort-area { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 10px 0; }
+        .sort-item { background: #e8f0fe; padding: 5px 12px; border-radius: 20px; display: inline-flex; align-items: center; gap: 6px; }
+        .sort-item button { background: none; border: none; cursor: pointer; color: #1a73e8; font-size: 14px; }
+        button { background: #1a73e8; color: #fff; border: none; padding: 10px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; margin: 5px; }
+        button:hover { background: #1557b0; }
+        button.danger { background: #dc3545; }
+        button.danger:hover { background: #c82333; }
+        button.success { background: #28a745; }
+        button.success:hover { background: #218838; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        button.small { padding: 4px 10px; font-size: 12px; margin: 2px; }
+        .result { margin-top: 30px; display: none; }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background: #f1f3f4; cursor: pointer; position: relative; }
+        th:hover { background: #e2e6ea; }
+        .filter-input { padding: 5px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 10px; width: 200px; }
+        .detail-row { display: none; }
+        .detail-row.show { display: table-row; }
+        .detail-row td { background: #f8f9fa; padding: 10px; }
+        .detail-inner-table { width: 100%; border-collapse: collapse; margin-top: 5px; }
+        .detail-inner-table th { background: #e9ecef; font-size: 13px; }
+        .detail-inner-table td { background: #fff; font-size: 13px; }
+        .undo-area { display: flex; gap: 10px; align-items: center; margin: 10px 0; flex-wrap: wrap; }
+        .alert { display: none; background: #d4edda; color: #155724; padding: 10px; border-radius: 6px; margin: 10px 0; }
+        .batch-toolbar { display: flex; gap: 10px; align-items: center; margin: 10px 0; flex-wrap: wrap; background: #f8f9fa; padding: 10px; border-radius: 6px; border: 1px solid #e9ecef; }
+        .batch-toolbar label { font-weight: bold; }
+        .common-column-btn { background: #ffc107; color: #333; }
+        .common-column-btn:hover { background: #e0a800; }
+
+        /* 删除行样式 */
+        .deleted-row { background: #f5f5f5 !important; color: #999; text-decoration: line-through; }
+        .deleted-row td { background: #f5f5f5 !important; }
+        .abnormal-row-duplicate { background: #fce4ec !important; }
+        .abnormal-row-empty { background: #fff3e0 !important; }
+        .abnormal-row-format { background: #e8f5e9 !important; }
+        .abnormal-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px; }
+        .abnormal-badge.dup { background: #ffcdd2; color: #c62828; }
+        .abnormal-badge.empty { background: #ffe0b2; color: #e65100; }
+        .abnormal-badge.format { background: #c8e6c9; color: #2e7d32; }
+        .check-btn-area { margin: 5px 0; }
+        .restore-btn { background: #6c757d; color: #fff; }
+        .restore-btn:hover { background: #5a6268; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>📊 多Sheet Excel 高级合并汇总工具 v4</h2>
+    
+    <!-- 步骤1：上传文件 -->
+    <h2>步骤1：上传文件</h2>
+    <input type="file" id="fileInput" accept=".xlsx, .xls" />
+
+    <!-- 步骤2：选择工作表 -->
+    <h2>步骤2：选择工作表</h2>
+    <div class="batch-toolbar">
+        <label>🔍 关键词批量选择：</label>
+        <input type="text" id="sheetKeywordInput" class="filter-input" placeholder="输入关键词" style="width:150px;" />
+        <button id="batchSelectSheetsBtn" class="small success">全选匹配Sheet</button>
+        <button id="deselectAllSheetsBtn" class="small danger">取消全选</button>
+    </div>
+    <div id="sheetList" class="sheet-grid"></div>
+
+    <!-- 步骤3：选择列标题 -->
+    <h2>步骤3：选择列标题</h2>
+    <div id="commonColumnToolbar" class="batch-toolbar" style="display:none;">
+        <label>📌 跨表相同列（3个及以上Sheet均出现）：</label>
+        <div id="commonColumnBtns"></div>
+    </div>
+    <div id="columnSelector"></div>
+
+    <!-- 步骤4：输出顺序定义 -->
+    <h2>步骤4：自定义输出顺序</h2>
+    <div id="sortArea" class="sort-area"></div>
+
+    <!-- 操作按钮 -->
+    <button id="mergeBtn" disabled>生成汇总表</button>
+    <button id="clearBtn" class="danger" disabled>清空所有选择</button>
+
+    <!-- 步骤5：结果展示区 -->
+    <div id="resultArea" class="result">
+        <h2>📋 汇总结果</h2>
+        <div class="undo-area">
+            <button id="undoBtn" class="danger">撤销上次删除</button>
+            <span id="undoStatus" style="color:#666;font-size:14px;"></span>
+        </div>
+        <div class="undo-area">
+            <label>🔍 筛选作品：<input type="text" id="workFilter" class="filter-input" placeholder="输入作品关键词" /></label>
+            <label>🔍 筛选链接：<input type="text" id="linkFilter" class="filter-input" placeholder="输入链接关键词" /></label>
+            <button id="cleanBtn" class="success">一键清洗（过滤空行和非http链接）</button>
+        </div>
+        <div id="tablesContainer"></div>
+        
+        <!-- 步骤6：下载 -->
+        <h2>步骤6：结果导出</h2>
+        <button id="downloadBtn" class="success">下载为Excel（多Sheet）</button>
+        <div id="alertMsg" class="alert"></div>
+    </div>
+</div>
+
+<script>
+// ===== 全局状态 =====
+let workbook = null;
+let sheetNames = [];
+let headerMap = {};
+let selectedSheets = new Set();
+let selectedColumns = [];
+let sortOrder = [];
+let mergeResults = [];
+let rawDataMap = {};        // 存储每个汇总项的原始数据行及删除状态
+let detailMap = {};
+let deleteHistory = [];     // 格式：{ key, role, idx, previousDeletedState }
+
+// DOM 引用
+const fileInput = document.getElementById('fileInput');
+const sheetList = document.getElementById('sheetList');
+const columnSelector = document.getElementById('columnSelector');
+const sortArea = document.getElementById('sortArea');
+const mergeBtn = document.getElementById('mergeBtn');
+const clearBtn = document.getElementById('clearBtn');
+const resultArea = document.getElementById('resultArea');
+const tablesContainer = document.getElementById('tablesContainer');
+const undoBtn = document.getElementById('undoBtn');
+const undoStatus = document.getElementById('undoStatus');
+const workFilter = document.getElementById('workFilter');
+const linkFilter = document.getElementById('linkFilter');
+const cleanBtn = document.getElementById('cleanBtn');
+const downloadBtn = document.getElementById('downloadBtn');
+const alertMsg = document.getElementById('alertMsg');
+const sheetKeywordInput = document.getElementById('sheetKeywordInput');
+const batchSelectSheetsBtn = document.getElementById('batchSelectSheetsBtn');
+const deselectAllSheetsBtn = document.getElementById('deselectAllSheetsBtn');
+const commonColumnToolbar = document.getElementById('commonColumnToolbar');
+const commonColumnBtns = document.getElementById('commonColumnBtns');
+
+// ===== 工具函数 =====
+function showAlert(msg, isError = false) {
+    alertMsg.textContent = msg;
+    alertMsg.style.display = 'block';
+    alertMsg.style.background = isError ? '#f8d7da' : '#d4edda';
+    alertMsg.style.color = isError ? '#721c24' : '#155724';
+    setTimeout(() => alertMsg.style.display = 'none', 3000);
+}
+
+function isLinkColumn(header) {
+    return ['链接', '网址', 'URL', 'url', '视频链接', '资源链接'].some(kw => header.includes(kw));
+}
+function isWorkColumn(header) {
+    return ['作品', '名称', '标题', '剧名'].some(kw => header.includes(kw));
+}
+function isDateColumn(header) {
+    return ['日期', '时间', '年月日', 'date'].some(kw => header.toLowerCase().includes(kw.toLowerCase()));
+}
+function normalizeColumn(header) {
+    if (isWorkColumn(header)) return '作品';
+    if (isLinkColumn(header)) return '链接';
+    if (isDateColumn(header)) return '日期';
+    return header;
+}
+
+// 检测链接异常类型
+function checkLinkAbnormal(link) {
+    if (!link || link.trim() === '') return 'empty';
+    if (!link.startsWith('http://') && !link.startsWith('https://')) return 'format';
+    return 'normal';
+}
+
+// ===== 步骤1 & 2 =====
+fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        const data = new Uint8Array(event.target.result);
+        workbook = XLSX.read(data, { type: 'array' });
+        sheetNames = workbook.SheetNames;
+        headerMap = {};
+        sheetNames.forEach(name => {
+            const sheet = workbook.Sheets[name];
+            const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+            headerMap[name] = json.length > 0 ? json[0] : [];
+        });
+        renderSheetList();
+        selectedSheets.clear();
+        selectedColumns = [];
+        sortOrder = [];
+        mergeResults = [];
+        rawDataMap = {};
+        detailMap = {};
+        deleteHistory = [];
+        mergeBtn.disabled = true;
+        clearBtn.disabled = true;
+        resultArea.style.display = 'none';
+        commonColumnToolbar.style.display = 'none';
+    };
+    reader.readAsArrayBuffer(file);
+});
+
+function renderSheetList() {
+    sheetList.innerHTML = '';
+    sheetNames.forEach(name => {
+        const div = document.createElement('div');
+        div.className = 'sheet-item';
+        div.innerHTML = `<input type="checkbox" data-sheet="${name}" /> ${name}`;
+        div.addEventListener('click', (e) => {
+            if (e.target.tagName !== 'INPUT') {
+                const cb = div.querySelector('input');
+                cb.checked = !cb.checked;
+                cb.dispatchEvent(new Event('change'));
+            }
+        });
+        const cb = div.querySelector('input');
+        cb.addEventListener('change', () => {
+            if (cb.checked) {
+                div.classList.add('selected');
+                selectedSheets.add(name);
+            } else {
+                div.classList.remove('selected');
+                selectedSheets.delete(name);
+            }
+            renderColumnSelector();
+            updateSortArea();
+            mergeBtn.disabled = selectedSheets.size === 0;
+            clearBtn.disabled = selectedSheets.size === 0;
+            updateCommonColumnToolbar();
+        });
+        sheetList.appendChild(div);
+    });
+}
+
+// ---- 关键词批量选择Sheet ----
+batchSelectSheetsBtn.addEventListener('click', () => {
+    const keyword = sheetKeywordInput.value.trim().toLowerCase();
+    if (!keyword) { showAlert('请输入关键词！', true); return; }
+    const items = sheetList.querySelectorAll('.sheet-item');
+    items.forEach(item => {
+        const cb = item.querySelector('input');
+        const sheetName = cb.dataset.sheet;
+        if (sheetName.toLowerCase().includes(keyword)) {
+            if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change')); }
+        }
+    });
+    showAlert(`已勾选名称包含"${keyword}"的所有Sheet`);
+});
+
+deselectAllSheetsBtn.addEventListener('click', () => {
+    const items = sheetList.querySelectorAll('.sheet-item');
+    items.forEach(item => {
+        const cb = item.querySelector('input');
+        if (cb.checked) { cb.checked = false; cb.dispatchEvent(new Event('change')); }
+    });
+});
+
+// ---- 跨表相同列全选 ----
+function updateCommonColumnToolbar() {
+    if (selectedSheets.size < 3) { commonColumnToolbar.style.display = 'none'; return; }
+    const colCount = {};
+    selectedSheets.forEach(sheetName => {
+        const headers = headerMap[sheetName] || [];
+        headers.forEach(h => { colCount[h] = (colCount[h] || 0) + 1; });
+    });
+    const commonCols = Object.keys(colCount).filter(h => colCount[h] >= 3);
+    if (commonCols.length === 0) { commonColumnToolbar.style.display = 'none'; return; }
+    commonColumnToolbar.style.display = 'flex';
+    commonColumnBtns.innerHTML = '';
+    commonCols.forEach(colName => {
+        const btn = document.createElement('button');
+        btn.className = 'small common-column-btn';
+        btn.textContent = `全选"${colName}" (${colCount[colName]}个Sheet)`;
+        btn.addEventListener('click', () => {
+            const checkboxes = columnSelector.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(cb => {
+                if (cb.dataset.header === colName) {
+                    if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change')); }
+                }
+            });
+            showAlert(`已在所有Sheet中全选列"${colName}"`);
+        });
+        commonColumnBtns.appendChild(btn);
+    });
+}
+
+// ===== 步骤3：渲染列标题 =====
+function renderColumnSelector() {
+    columnSelector.innerHTML = '';
+    if (selectedSheets.size === 0) return;
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'column-group';
+    selectedSheets.forEach(sheetName => {
+        const headers = headerMap[sheetName] || [];
+        if (headers.length === 0) return;
+        const card = document.createElement('div');
+        card.className = 'column-card';
+        let html = `<h4>📄 ${sheetName}</h4>`;
+        headers.forEach((header, index) => {
+            const checked = selectedColumns.some(c => c.sheet === sheetName && c.header === header);
+            html += `<label><input type="checkbox" data-sheet="${sheetName}" data-colindex="${index}" data-header="${header}" ${checked ? 'checked' : ''} /> ${header}</label>`;
+        });
+        card.innerHTML = html;
+        card.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            cb.addEventListener('change', () => {
+                const sheet = cb.dataset.sheet;
+                const header = cb.dataset.header;
+                const colIndex = parseInt(cb.dataset.colindex);
+                if (cb.checked) {
+                    if (!selectedColumns.some(c => c.sheet === sheet && c.header === header)) {
+                        selectedColumns.push({ sheet, header, colIndex });
+                    }
+                } else {
+                    selectedColumns = selectedColumns.filter(c => !(c.sheet === sheet && c.header === header));
+                }
+                updateSortArea();
+            });
+        });
+        groupDiv.appendChild(card);
+    });
+    columnSelector.appendChild(groupDiv);
+}
+
+// ===== 步骤4：排序 =====
+function updateSortArea() {
+    sortArea.innerHTML = '';
+    const headers = [...new Set(selectedColumns.map(c => c.header))];
+    headers.forEach(h => { if (!sortOrder.includes(h)) sortOrder.push(h); });
+    sortOrder = sortOrder.filter(h => headers.includes(h));
+    sortOrder.forEach((header, index) => {
+        const span = document.createElement('span');
+        span.className = 'sort-item';
+        span.innerHTML = `${index + 1}. ${header} <button class="move-up" ${index === 0 ? 'disabled' : ''}>▲</button> <button class="move-down" ${index === sortOrder.length - 1 ? 'disabled' : ''}>▼</button>`;
+        span.querySelector('.move-up').addEventListener('click', () => {
+            if (index > 0) { [sortOrder[index], sortOrder[index - 1]] = [sortOrder[index - 1], sortOrder[index]]; updateSortArea(); }
+        });
+        span.querySelector('.move-down').addEventListener('click', () => {
+            if (index < sortOrder.length - 1) { [sortOrder[index], sortOrder[index + 1]] = [sortOrder[index + 1], sortOrder[index]]; updateSortArea(); }
+        });
+        sortArea.appendChild(span);
+    });
+}
+
+// ===== 步骤5：生成汇总表 =====
+mergeBtn.addEventListener('click', () => {
+    if (selectedColumns.length === 0 || sortOrder.length === 0) {
+        showAlert('请先选择列并调整顺序！', true);
+        return;
+    }
+    mergeResults = [];
+    rawDataMap = {};
+    detailMap = {};
+    deleteHistory = [];
+
+    const dataGroups = {};
+    selectedSheets.forEach(sheetName => {
+        const cols = selectedColumns.filter(c => c.sheet === sheetName);
+        if (cols.length === 0) return;
+        const sheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+        if (rows.length < 2) return;
+        const headers = rows[0];
+        const dataRows = rows.slice(1);
+
+        let workIdx = cols.find(c => isWorkColumn(c.header))?.colIndex;
+        let dateIdx = cols.find(c => isDateColumn(c.header))?.colIndex;
+        let linkIdx = cols.find(c => isLinkColumn(c.header))?.colIndex;
+        if (workIdx === undefined || linkIdx === undefined) return;
+
+        const linkRole = normalizeColumn(cols.find(c => isLinkColumn(c.header))?.header || '链接');
+        const roleKey = `作品|${dateIdx !== undefined ? '日期|' : ''}${linkRole}`;
+        if (!dataGroups[roleKey]) dataGroups[roleKey] = [];
+        
+        dataRows.forEach(row => {
+            const work = row[workIdx] ? String(row[workIdx]).trim() : '';
+            const link = row[linkIdx] ? String(row[linkIdx]).trim() : '';
+            if (!work || !link) return;
+            let date = dateIdx !== undefined ? (row[dateIdx] ? String(row[dateIdx]).trim() : '') : '';
+            const entry = { 作品: work, 链接: link };
+            if (date) entry.日期 = date;
+            entry._rawRow = row;
+            entry._rawHeaders = headers;
+            entry._sheetName = sheetName;
+            dataGroups[roleKey].push(entry);
+        });
+    });
+
+    tablesContainer.innerHTML = '';
+    let tableIndex = 0;
+    for (const roleKey in dataGroups) {
+        const data = dataGroups[roleKey];
+        if (data.length === 0) continue;
+        tableIndex++;
+
+        const countMap = {};
+        data.forEach(item => {
+            const key = item.日期 ? `${item.作品}|${item.日期}` : item.作品;
+            if (!countMap[key]) {
+                countMap[key] = { 作品: item.作品, 日期: item.日期 || '', 链接数: 0, 链接集合: [], rawRows: [] };
+            }
+            countMap[key].链接数++;
+            countMap[key].链接集合.push(item.链接);
+            countMap[key].rawRows.push({
+                row: item._rawRow,
+                headers: item._rawHeaders,
+                sheetName: item._sheetName,
+                deleted: false  // 删除状态标记
+            });
+        });
+
+        const sortedData = Object.values(countMap).sort((a, b) => a.作品.localeCompare(b.作品));
+
+        const title = document.createElement('h3');
+        title.textContent = `汇总表${tableIndex}：${roleKey}`;
+        tablesContainer.appendChild(title);
+
+        const table = document.createElement('table');
+        const thead = document.createElement('thead');
+        let headerHtml = '<tr>';
+        sortOrder.forEach(h => {
+            if (isWorkColumn(h)) headerHtml += '<th>作品</th>';
+            else if (isDateColumn(h)) headerHtml += '<th>日期</th>';
+            else if (isLinkColumn(h)) headerHtml += '<th>链接汇总数</th>';
+        });
+        headerHtml += '<th>操作</th></tr>';
+        thead.innerHTML = headerHtml;
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        sortedData.forEach(item => {
+            const uniqueKey = item.日期 ? `${item.作品}|${item.日期}` : item.作品;
+            const tr = document.createElement('tr');
+            tr.dataset.key = uniqueKey;
+            tr.dataset.roleKey = roleKey;
+
+            let rowHtml = '';
+            sortOrder.forEach(h => {
+                if (isWorkColumn(h)) rowHtml += `<td>${item.作品}</td>`;
+                else if (isDateColumn(h)) rowHtml += `<td>${item.日期}</td>`;
+                else if (isLinkColumn(h)) rowHtml += `<td class="count-cell" data-count="${item.链接数}">${item.链接数}</td>`;
+            });
+            rowHtml += `<td><button class="detail-btn" data-key="${uniqueKey}" data-role="${roleKey}">查看明细</button></td>`;
+            tr.innerHTML = rowHtml;
+            tbody.appendChild(tr);
+
+            // 存储原始数据（全局rawDataMap使用复合键）
+            rawDataMap[uniqueKey + '|' + roleKey] = item.rawRows;
+
+            // 明细行
+            const detailTr = document.createElement('tr');
+            detailTr.className = 'detail-row';
+            detailTr.id = `detail-${roleKey}-${uniqueKey}`;
+            const detailTd = document.createElement('td');
+            detailTd.colSpan = sortOrder.length + 1;
+            detailTd.innerHTML = `<div class="detail-content">加载中...</div>`;
+            detailTr.appendChild(detailTd);
+            tbody.appendChild(detailTr);
+
+            // 保留detailMap用于兼容
+            const linkCounts = {};
+            item.链接集合.forEach(link => {
+                linkCounts[link] = (linkCounts[link] || 0) + 1;
+            });
+            if (!detailMap[roleKey]) detailMap[roleKey] = {};
+            detailMap[roleKey][uniqueKey] = Object.entries(linkCounts).map(([link, count]) => ({ link, count }));
+        });
+
+        // 总计行
+        const totalRow = document.createElement('tr');
+        totalRow.style.fontWeight = 'bold';
+        totalRow.style.background = '#e9ecef';
+        const totalLinks = sortedData.reduce((sum, item) => sum + item.链接数, 0);
+        let totalHtml = '';
+        if (sortOrder.some(h => isWorkColumn(h))) totalHtml += '<td>合计</td>';
+        if (sortOrder.some(h => isDateColumn(h))) totalHtml += '<td></td>';
+        if (sortOrder.some(h => isLinkColumn(h))) totalHtml += `<td class="grand-total">${totalLinks}</td>`;
+        totalHtml += '<td></td>';
+        totalRow.innerHTML = totalHtml;
+        tbody.appendChild(totalRow);
+
+        table.appendChild(tbody);
+        tablesContainer.appendChild(table);
+    }
+
+    // 绑定明细按钮
+    bindDetailButtons();
+
+    resultArea.style.display = 'block';
+    showAlert(`生成完成！共 ${tableIndex} 个汇总表`);
+    undoStatus.textContent = `可撤销次数：0`;
+});
+
+// 绑定明细按钮（每次重新渲染后调用）
+function bindDetailButtons() {
+    document.querySelectorAll('.detail-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const key = btn.dataset.key;
+            const roleKey = btn.dataset.role;
+            const detailRow = document.getElementById(`detail-${roleKey}-${key}`);
+            if (!detailRow) return;
+            const isShow = detailRow.classList.contains('show');
+            if (isShow) {
+                detailRow.classList.remove('show');
+                btn.textContent = '查看明细';
+            } else {
+                detailRow.classList.add('show');
+                btn.textContent = '收起明细';
+                renderDetailContent(detailRow, key, roleKey);
+            }
+        });
+    });
+}
+
+// 渲染明细内容（核心修改：删除行变灰+删除线，序号跳过，保留原位，按钮变恢复）
+function renderDetailContent(detailRow, key, roleKey) {
+    const rawRows = rawDataMap[key + '|' + roleKey] || [];
+    const displayCols = sortOrder.map(h => {
+        return selectedColumns.find(c => c.header === h);
+    }).filter(c => c);
+
+    // 构建异常检测按钮区域
+    let html = '<div class="check-btn-area">';
+    html += `<button class="small warning" id="checkAbnormal-${roleKey}-${key}" style="background:#ff9800;color:#fff;">🔍 检测异常链接</button>`;
+    html += `<span id="abnormalStats-${roleKey}-${key}" style="margin-left:10px;font-size:13px;"></span>`;
+    html += '</div>';
+
+    // 明细表格
+    html += '<table class="detail-inner-table">';
+    html += '<tr><th>序号</th>';
+    displayCols.forEach(c => {
+        html += `<th>${c.header}</th>`;
+    });
+    html += '<th>操作</th></tr>';
+
+    // 计算当前未删除的行数（用于总计显示）
+    let activeCount = 0;
+    rawRows.forEach(item => { if (!item.deleted) activeCount++; });
+
+    // 检测异常并统计
+    const linkCountMap = {};
+    rawRows.forEach((item, idx) => {
+        if (item.deleted) return;
+        const link = item.row[displayCols.find(c => isLinkColumn(c.header))?.colIndex] ? 
+            String(item.row[displayCols.find(c => isLinkColumn(c.header)).colIndex]).trim() : '';
+        if (link) {
+            linkCountMap[link] = (linkCountMap[link] || 0) + 1;
+        }
+    });
+
+    // 为每一行确定异常类型（重复、空、格式）
+    const abnormalFlags = [];
+    rawRows.forEach((item, idx) => {
+        if (item.deleted) { abnormalFlags.push(null); return; }
+        const linkColIdx = displayCols.find(c => isLinkColumn(c.header))?.colIndex;
+        const link = linkColIdx !== undefined ? (item.row[linkColIdx] ? String(item.row[linkColIdx]).trim() : '') : '';
+        let flag = 'normal';
+        if (!link) flag = 'empty';
+        else if (!link.startsWith('http://') && !link.startsWith('https://')) flag = 'format';
+        else if (linkCountMap[link] > 1) flag = 'duplicate';
+        abnormalFlags.push(flag);
+    });
+
+    // 统计异常数量
+    const abnormalStats = { duplicate: 0, empty: 0, format: 0 };
+    abnormalFlags.forEach(f => {
+        if (f === 'duplicate') abnormalStats.duplicate++;
+        else if (f === 'empty') abnormalStats.empty++;
+        else if (f === 'format') abnormalStats.format++;
+    });
+
+    // 生成行顺序（异常行在前，正常行在后，删除行保持原位但按原顺序）
+    const orderIndices = [];
+    const deletedIndices = [];
+    rawRows.forEach((item, idx) => {
+        if (item.deleted) {
+            deletedIndices.push(idx);
+        } else {
+            orderIndices.push(idx);
+        }
+    });
+    // 异常排序：重复>空>格式>正常
+    const abnormalOrder = orderIndices.filter(idx => abnormalFlags[idx] && abnormalFlags[idx] !== 'normal');
+    const normalOrder = orderIndices.filter(idx => !abnormalFlags[idx] || abnormalFlags[idx] === 'normal');
+    abnormalOrder.sort((a, b) => {
+        const order = { duplicate: 0, empty: 1, format: 2 };
+        return (order[abnormalFlags[a]] || 3) - (order[abnormalFlags[b]] || 3);
+    });
+    const finalOrder = abnormalOrder.concat(normalOrder).concat(deletedIndices);
+
+    // 渲染行
+    let seq = 0;
+    finalOrder.forEach(idx => {
+        const item = rawRows[idx];
+        const flag = abnormalFlags[idx];
+        let rowClass = '';
+        if (item.deleted) {
+            rowClass = 'deleted-row';
+        } else if (flag === 'duplicate') {
+            rowClass = 'abnormal-row-duplicate';
+        } else if (flag === 'empty') {
+            rowClass = 'abnormal-row-empty';
+        } else if (flag === 'format') {
+            rowClass = 'abnormal-row-format';
+        }
+
+        html += `<tr class="${rowClass}">`;
+        if (item.deleted) {
+            // 已删除行：序号显示为“-”，操作按钮为“恢复”
+            html += `<td style="color:#bbb;">-</td>`;
+            displayCols.forEach(c => {
+                const val = item.row[c.colIndex] !== undefined ? String(item.row[c.colIndex]) : '';
+                html += `<td>${val}</td>`;
+            });
+            html += `<td><button class="small restore-btn restore-link" data-key="${key}" data-role="${roleKey}" data-idx="${idx}">恢复</button></td>`;
+        } else {
+            seq++;
+            html += `<td>${seq}</td>`;
+            displayCols.forEach(c => {
+                let val = item.row[c.colIndex] !== undefined ? String(item.row[c.colIndex]) : '';
+                // 如果是链接列且异常，添加标签
+                if (isLinkColumn(c.header) && flag && flag !== 'normal') {
+                    let badge = '';
+                    if (flag === 'duplicate') badge = '<span class="abnormal-badge dup">重复</span>';
+                    else if (flag === 'empty') badge = '<span class="abnormal-badge empty">空白</span>';
+                    else if (flag === 'format') badge = '<span class="abnormal-badge format">非http</span>';
+                    val = val + ' ' + badge;
+                }
+                html += `<td>${val}</td>`;
+            });
+            html += `<td><button class="small danger delete-link-btn" data-key="${key}" data-role="${roleKey}" data-idx="${idx}">删除</button></td>`;
+        }
+        html += `</tr>`;
+    });
+
+    html += '</table>';
+    detailRow.querySelector('.detail-content').innerHTML = html;
+
+    // 更新异常统计显示
+    const totalAbnormal = abnormalStats.duplicate + abnormalStats.empty + abnormalStats.format;
+    if (totalAbnormal > 0) {
+        document.getElementById(`abnormalStats-${roleKey}-${key}`).innerHTML = 
+            `⚠️ 发现 ${totalAbnormal} 条异常：<span class="abnormal-badge dup">重复 ${abnormalStats.duplicate}</span> <span class="abnormal-badge empty">空白 ${abnormalStats.empty}</span> <span class="abnormal-badge format">非http ${abnormalStats.format}</span>`;
+    }
+
+    // ---- 绑定删除按钮（改为标记deleted，不移动行） ----
+    detailRow.querySelectorAll('.delete-link-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const k = btn.dataset.key;
+            const role = btn.dataset.role;
+            const idx = parseInt(btn.dataset.idx);
+            const rawKey = k + '|' + role;
+            if (rawDataMap[rawKey] && rawDataMap[rawKey][idx]) {
+                // 记录撤销历史
+                deleteHistory.push({ key: k, role: role, idx: idx, previousDeleted: false });
+                // 标记为已删除
+                rawDataMap[rawKey][idx].deleted = true;
+                // 更新总表统计数（减少1）
+                const parentRow = detailRow.previousElementSibling;
+                const countCell = parentRow.querySelector('.count-cell');
+                if (countCell) {
+                    const newCount = parseInt(countCell.dataset.count) - 1;
+                    countCell.dataset.count = newCount;
+                    countCell.textContent = newCount;
+                }
+                // 更新总计行
+                const tableBody = detailRow.closest('tbody');
+                const grandTotalCell = tableBody.querySelector('.grand-total');
+                if (grandTotalCell) {
+                    const total = parseInt(grandTotalCell.textContent) - 1;
+                    grandTotalCell.textContent = total;
+                }
+                // 重新渲染明细（保留原位，序号重新计算）
+                renderDetailContent(detailRow, k, role);
+                showAlert('已删除该行（保留原位）');
+                undoStatus.textContent = `可撤销次数：${deleteHistory.length}`;
+            }
+        });
+    });
+
+    // ---- 绑定恢复按钮 ----
+    detailRow.querySelectorAll('.restore-link').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const k = btn.dataset.key;
+            const role = btn.dataset.role;
+            const idx = parseInt(btn.dataset.idx);
+            const rawKey = k + '|' + role;
+            if (rawDataMap[rawKey] && rawDataMap[rawKey][idx]) {
+                rawDataMap[rawKey][idx].deleted = false;
+                // 更新总表统计数（增加1）
+                const parentRow = detailRow.previousElementSibling;
+                const countCell = parentRow.querySelector('.count-cell');
+                if (countCell) {
+                    const newCount = parseInt(countCell.dataset.count) + 1;
+                    countCell.dataset.count = newCount;
+                    countCell.textContent = newCount;
+                }
+                // 更新总计行
+                const tableBody = detailRow.closest('tbody');
+                const grandTotalCell = tableBody.querySelector('.grand-total');
+                if (grandTotalCell) {
+                    const total = parseInt(grandTotalCell.textContent) + 1;
+                    grandTotalCell.textContent = total;
+                }
+                // 重新渲染明细
+                renderDetailContent(detailRow, k, role);
+                showAlert('已恢复该行');
+            }
+        });
+    });
+
+    // ---- 绑定异常检测按钮 ----
+    const checkBtn = document.getElementById(`checkAbnormal-${roleKey}-${key}`);
+    if (checkBtn) {
+        checkBtn.addEventListener('click', () => {
+            const firstAbnormal = detailRow.querySelector('.abnormal-row-duplicate, .abnormal-row-empty, .abnormal-row-format');
+            if (firstAbnormal) {
+                firstAbnormal.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                showAlert(`已定位到第一条异常行`);
+            } else {
+                showAlert('没有发现异常行');
+            }
+        });
+    }
+}
+
+// ===== 撤销、筛选、清洗、下载 =====
+undoBtn.addEventListener('click', () => {
+    if (deleteHistory.length === 0) { showAlert('没有可撤销的操作', true); return; }
+    const last = deleteHistory.pop();
+    const { key, role, idx } = last;
+    const rawKey = key + '|' + role;
+    if (rawDataMap[rawKey] && rawDataMap[rawKey][idx]) {
+        rawDataMap[rawKey][idx].deleted = false;
+        // 更新统计（增加1）
+        const detailRow = document.getElementById(`detail-${role}-${key}`);
+        if (detailRow) {
+            const parentRow = detailRow.previousElementSibling;
+            const countCell = parentRow.querySelector('.count-cell');
+            if (countCell) {
+                const newCount = parseInt(countCell.dataset.count) + 1;
+                countCell.dataset.count = newCount;
+                countCell.textContent = newCount;
+            }
+            const tableBody = detailRow.closest('tbody');
+            const grandTotalCell = tableBody.querySelector('.grand-total');
+            if (grandTotalCell) {
+                const total = parseInt(grandTotalCell.textContent) + 1;
+                grandTotalCell.textContent = total;
+            }
+            renderDetailContent(detailRow, key, role);
+        }
+        showAlert('已撤销上次删除');
+        undoStatus.textContent = `可撤销次数：${deleteHistory.length}`;
+    }
+});
+
+clearBtn.addEventListener('click', () => {
+    selectedSheets.clear();
+    selectedColumns = [];
+    sortOrder = [];
+    mergeResults = [];
+    rawDataMap = {};
+    detailMap = {};
+    deleteHistory = [];
+    renderSheetList();
+    columnSelector.innerHTML = '';
+    sortArea.innerHTML = '';
+    mergeBtn.disabled = true;
+    clearBtn.disabled = true;
+    resultArea.style.display = 'none';
+    commonColumnToolbar.style.display = 'none';
+});
+
+workFilter.addEventListener('input', filterTables);
+linkFilter.addEventListener('input', filterTables);
+
+function filterTables() {
+    const workVal = workFilter.value.toLowerCase();
+    const linkVal = linkFilter.value.toLowerCase();
+    document.querySelectorAll('table tbody tr:not(.detail-row)').forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells.length < 2) return;
+        let show = true;
+        if (workVal) show = cells[0].textContent.toLowerCase().includes(workVal);
+        if (linkVal) {
+            const linkIndex = sortOrder.findIndex(h => isLinkColumn(h));
+            if (linkIndex !== -1 && cells[linkIndex]) show = show && cells[linkIndex].textContent.toLowerCase().includes(linkVal);
+        }
+        row.style.display = show ? '' : 'none';
+    });
+}
+
+cleanBtn.addEventListener('click', () => {
+    // 对rawDataMap中的所有行，将deleted=false且链接不正常的标记为deleted（简单清洗：直接删除）
+    // 这里为了简化，直接删除明细中非http/空的链接（标记为deleted）
+    for (const rawKey in rawDataMap) {
+        rawDataMap[rawKey].forEach(item => {
+            if (item.deleted) return;
+            const linkColIdx = selectedColumns.find(c => isLinkColumn(c.header))?.colIndex;
+            const link = linkColIdx !== undefined ? (item.row[linkColIdx] ? String(item.row[linkColIdx]).trim() : '') : '';
+            if (!link || (!link.startsWith('http://') && !link.startsWith('https://'))) {
+                item.deleted = true;
+            }
+        });
+    }
+    // 刷新所有明细
+    document.querySelectorAll('.detail-btn').forEach(btn => {
+        const key = btn.dataset.key;
+        const roleKey = btn.dataset.role;
+        const detailRow = document.getElementById(`detail-${roleKey}-${key}`);
+        if (detailRow && detailRow.classList.contains('show')) {
+            renderDetailContent(detailRow, key, roleKey);
+        }
+    });
+    // 更新总表统计数
+    updateAllCounts();
+    showAlert('清洗完成！已过滤非http链接和空行');
+});
+
+// 辅助：更新所有总表统计数（基于当前rawDataMap）
+function updateAllCounts() {
+    document.querySelectorAll('table tbody tr:not(.detail-row)').forEach(tr => {
+        const key = tr.dataset.key;
+        const role = tr.dataset.roleKey;
+        if (!key || !role) return;
+        const rawKey = key + '|' + role;
+        const rows = rawDataMap[rawKey];
+        if (!rows) return;
+        const activeCount = rows.filter(r => !r.deleted).length;
+        const countCell = tr.querySelector('.count-cell');
+        if (countCell) {
+            countCell.dataset.count = activeCount;
+            countCell.textContent = activeCount;
+        }
+    });
+    // 更新总计行
+    document.querySelectorAll('.grand-total').forEach(cell => {
+        const tableBody = cell.closest('tbody');
+        let total = 0;
+        tableBody.querySelectorAll('tr:not(.detail-row)').forEach(tr => {
+            const countCell = tr.querySelector('.count-cell');
+            if (countCell) total += parseInt(countCell.dataset.count);
+        });
+        cell.textContent = total;
+    });
+}
+
+// ===== 下载 =====
+downloadBtn.addEventListener('click', () => {
+    const wb = XLSX.utils.book_new();
+    document.querySelectorAll('#tablesContainer > h3').forEach((title, idx) => {
+        const table = title.nextElementSibling;
+        if (!table || table.tagName !== 'TABLE') return;
+        const rows = [];
+        const headerCells = table.querySelectorAll('thead tr th');
+        const headerRow = [];
+        headerCells.forEach(th => headerRow.push(th.textContent));
+        rows.push(headerRow);
+
+        const bodyRows = table.querySelectorAll('tbody tr:not(.detail-row)');
+        bodyRows.forEach(tr => {
+            const row = [];
+            tr.querySelectorAll('td').forEach((td, i) => {
+                if (i < sortOrder.length) row.push(td.textContent);
+            });
+            rows.push(row);
+
+            // 添加明细（只导出未删除的行）
+            const key = tr.dataset.key;
+            const role = tr.dataset.roleKey;
+            if (key && role && rawDataMap[key + '|' + role]) {
+                const rawRows = rawDataMap[key + '|' + role];
+                if (rawRows.length > 0) {
+                    rows.push([]);
+                    rows.push(['--- 明细数据 ---']);
+                    const displayCols = sortOrder.map(h => selectedColumns.find(c => c.header === h)).filter(c => c);
+                    rows.push(['序号', ...displayCols.map(c => c.header), '状态']);
+                    let seq = 0;
+                    rawRows.forEach(item => {
+                        if (item.deleted) return;
+                        seq++;
+                        const rowData = [seq, ...displayCols.map(c => String(item.row[c.colIndex] || '')), '正常'];
+                        rows.push(rowData);
+                    });
+                }
+            }
+        });
+
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        const sheetName = title.textContent.replace(/[\/\\*\[\]:?]/g, '_').substring(0, 31);
+        XLSX.utils.book_append_sheet(wb, ws, sheetName || `Sheet${idx + 1}`);
+    });
+
+    if (wb.SheetNames.length === 0) { showAlert('没有可导出的数据！', true); return; }
+    XLSX.writeFile(wb, 'Excel高级汇总结果_v4.xlsx');
+    showAlert('下载成功！');
+});
+</script>
+</body>
+</html>
