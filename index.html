@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>多Sheet Excel 高级合并汇总工具 v4</title>
+    <title>多Sheet Excel 高级合并汇总工具 v5</title>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
+        /* ===== 原有样式（保持不变） ===== */
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: "Microsoft YaHei", sans-serif; }
         body { background: #f0f2f5; padding: 20px; }
         .container { max-width: 1200px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
@@ -48,8 +49,6 @@
         .batch-toolbar label { font-weight: bold; }
         .common-column-btn { background: #ffc107; color: #333; }
         .common-column-btn:hover { background: #e0a800; }
-
-        /* 删除行样式 */
         .deleted-row { background: #f5f5f5 !important; color: #999; text-decoration: line-through; }
         .deleted-row td { background: #f5f5f5 !important; }
         .abnormal-row-duplicate { background: #fce4ec !important; }
@@ -62,11 +61,43 @@
         .check-btn-area { margin: 5px 0; }
         .restore-btn { background: #6c757d; color: #fff; }
         .restore-btn:hover { background: #5a6268; }
+
+        /* ===== 新增样式：提取作品链接总数区域 ===== */
+        .extract-area {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+        }
+        .extract-area textarea {
+            width: 100%;
+            height: 120px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+            resize: vertical;
+        }
+        .extract-result-table {
+            margin-top: 15px;
+        }
+        .extract-result-table table {
+            width: auto;
+            min-width: 300px;
+        }
+        .copy-btn {
+            margin-top: 10px;
+            background: #17a2b8;
+        }
+        .copy-btn:hover {
+            background: #138496;
+        }
     </style>
 </head>
 <body>
 <div class="container">
-    <h2>📊 多Sheet Excel 高级合并汇总工具 v4</h2>
+    <h2>📊 多Sheet Excel 高级合并汇总工具 v5</h2>
     
     <!-- 步骤1：上传文件 -->
     <h2>步骤1：上传文件</h2>
@@ -112,10 +143,22 @@
         </div>
         <div id="tablesContainer"></div>
         
-        <!-- 步骤6：下载 -->
+        <!-- 步骤6：结果导出 -->
         <h2>步骤6：结果导出</h2>
         <button id="downloadBtn" class="success">下载为Excel（多Sheet）</button>
         <div id="alertMsg" class="alert"></div>
+
+        <!-- ===== 新增：提取作品链接总数 ===== -->
+        <div class="extract-area">
+            <h3>📋 提取作品链接总数</h3>
+            <p>从Excel中复制作品列表（每行一个作品），粘贴到下方文本框，点击“提取统计”：</p>
+            <textarea id="workNameInput" placeholder="例如：&#10;定风波（目前0426无流畅播）&#10;借命而生（目前0426无流畅播了）&#10;..."></textarea>
+            <div style="margin-top:10px;">
+                <button id="extractBtn" class="success">提取统计</button>
+                <button id="copyResultBtn" class="copy-btn" style="display:none;">复制结果到剪贴板（适合粘贴到Excel）</button>
+            </div>
+            <div id="extractResult" class="extract-result-table"></div>
+        </div>
     </div>
 </div>
 
@@ -128,9 +171,9 @@ let selectedSheets = new Set();
 let selectedColumns = [];
 let sortOrder = [];
 let mergeResults = [];
-let rawDataMap = {};        // 存储每个汇总项的原始数据行及删除状态
+let rawDataMap = {};
 let detailMap = {};
-let deleteHistory = [];     // 格式：{ key, role, idx, previousDeletedState }
+let deleteHistory = [];
 
 // DOM 引用
 const fileInput = document.getElementById('fileInput');
@@ -153,6 +196,11 @@ const batchSelectSheetsBtn = document.getElementById('batchSelectSheetsBtn');
 const deselectAllSheetsBtn = document.getElementById('deselectAllSheetsBtn');
 const commonColumnToolbar = document.getElementById('commonColumnToolbar');
 const commonColumnBtns = document.getElementById('commonColumnBtns');
+// 新增DOM
+const workNameInput = document.getElementById('workNameInput');
+const extractBtn = document.getElementById('extractBtn');
+const copyResultBtn = document.getElementById('copyResultBtn');
+const extractResult = document.getElementById('extractResult');
 
 // ===== 工具函数 =====
 function showAlert(msg, isError = false) {
@@ -179,7 +227,6 @@ function normalizeColumn(header) {
     return header;
 }
 
-// 检测链接异常类型
 function checkLinkAbnormal(link) {
     if (!link || link.trim() === '') return 'empty';
     if (!link.startsWith('http://') && !link.startsWith('https://')) return 'format';
@@ -213,6 +260,8 @@ fileInput.addEventListener('change', (e) => {
         clearBtn.disabled = true;
         resultArea.style.display = 'none';
         commonColumnToolbar.style.display = 'none';
+        extractResult.innerHTML = '';
+        copyResultBtn.style.display = 'none';
     };
     reader.readAsArrayBuffer(file);
 });
@@ -368,6 +417,8 @@ mergeBtn.addEventListener('click', () => {
     rawDataMap = {};
     detailMap = {};
     deleteHistory = [];
+    extractResult.innerHTML = '';
+    copyResultBtn.style.display = 'none';
 
     const dataGroups = {};
     selectedSheets.forEach(sheetName => {
@@ -421,7 +472,7 @@ mergeBtn.addEventListener('click', () => {
                 row: item._rawRow,
                 headers: item._rawHeaders,
                 sheetName: item._sheetName,
-                deleted: false  // 删除状态标记
+                deleted: false
             });
         });
 
@@ -460,10 +511,8 @@ mergeBtn.addEventListener('click', () => {
             tr.innerHTML = rowHtml;
             tbody.appendChild(tr);
 
-            // 存储原始数据（全局rawDataMap使用复合键）
             rawDataMap[uniqueKey + '|' + roleKey] = item.rawRows;
 
-            // 明细行
             const detailTr = document.createElement('tr');
             detailTr.className = 'detail-row';
             detailTr.id = `detail-${roleKey}-${uniqueKey}`;
@@ -473,7 +522,6 @@ mergeBtn.addEventListener('click', () => {
             detailTr.appendChild(detailTd);
             tbody.appendChild(detailTr);
 
-            // 保留detailMap用于兼容
             const linkCounts = {};
             item.链接集合.forEach(link => {
                 linkCounts[link] = (linkCounts[link] || 0) + 1;
@@ -499,7 +547,6 @@ mergeBtn.addEventListener('click', () => {
         tablesContainer.appendChild(table);
     }
 
-    // 绑定明细按钮
     bindDetailButtons();
 
     resultArea.style.display = 'block';
@@ -507,7 +554,7 @@ mergeBtn.addEventListener('click', () => {
     undoStatus.textContent = `可撤销次数：0`;
 });
 
-// 绑定明细按钮（每次重新渲染后调用）
+// 绑定明细按钮
 function bindDetailButtons() {
     document.querySelectorAll('.detail-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -528,20 +575,18 @@ function bindDetailButtons() {
     });
 }
 
-// 渲染明细内容（核心修改：删除行变灰+删除线，序号跳过，保留原位，按钮变恢复）
+// 渲染明细内容（完整保留v4逻辑）
 function renderDetailContent(detailRow, key, roleKey) {
     const rawRows = rawDataMap[key + '|' + roleKey] || [];
     const displayCols = sortOrder.map(h => {
         return selectedColumns.find(c => c.header === h);
     }).filter(c => c);
 
-    // 构建异常检测按钮区域
     let html = '<div class="check-btn-area">';
     html += `<button class="small warning" id="checkAbnormal-${roleKey}-${key}" style="background:#ff9800;color:#fff;">🔍 检测异常链接</button>`;
     html += `<span id="abnormalStats-${roleKey}-${key}" style="margin-left:10px;font-size:13px;"></span>`;
     html += '</div>';
 
-    // 明细表格
     html += '<table class="detail-inner-table">';
     html += '<tr><th>序号</th>';
     displayCols.forEach(c => {
@@ -549,22 +594,16 @@ function renderDetailContent(detailRow, key, roleKey) {
     });
     html += '<th>操作</th></tr>';
 
-    // 计算当前未删除的行数（用于总计显示）
-    let activeCount = 0;
-    rawRows.forEach(item => { if (!item.deleted) activeCount++; });
-
-    // 检测异常并统计
     const linkCountMap = {};
     rawRows.forEach((item, idx) => {
         if (item.deleted) return;
-        const link = item.row[displayCols.find(c => isLinkColumn(c.header))?.colIndex] ? 
-            String(item.row[displayCols.find(c => isLinkColumn(c.header)).colIndex]).trim() : '';
+        const linkColIdx = displayCols.find(c => isLinkColumn(c.header))?.colIndex;
+        const link = linkColIdx !== undefined ? (item.row[linkColIdx] ? String(item.row[linkColIdx]).trim() : '') : '';
         if (link) {
             linkCountMap[link] = (linkCountMap[link] || 0) + 1;
         }
     });
 
-    // 为每一行确定异常类型（重复、空、格式）
     const abnormalFlags = [];
     rawRows.forEach((item, idx) => {
         if (item.deleted) { abnormalFlags.push(null); return; }
@@ -577,7 +616,6 @@ function renderDetailContent(detailRow, key, roleKey) {
         abnormalFlags.push(flag);
     });
 
-    // 统计异常数量
     const abnormalStats = { duplicate: 0, empty: 0, format: 0 };
     abnormalFlags.forEach(f => {
         if (f === 'duplicate') abnormalStats.duplicate++;
@@ -585,7 +623,6 @@ function renderDetailContent(detailRow, key, roleKey) {
         else if (f === 'format') abnormalStats.format++;
     });
 
-    // 生成行顺序（异常行在前，正常行在后，删除行保持原位但按原顺序）
     const orderIndices = [];
     const deletedIndices = [];
     rawRows.forEach((item, idx) => {
@@ -595,7 +632,6 @@ function renderDetailContent(detailRow, key, roleKey) {
             orderIndices.push(idx);
         }
     });
-    // 异常排序：重复>空>格式>正常
     const abnormalOrder = orderIndices.filter(idx => abnormalFlags[idx] && abnormalFlags[idx] !== 'normal');
     const normalOrder = orderIndices.filter(idx => !abnormalFlags[idx] || abnormalFlags[idx] === 'normal');
     abnormalOrder.sort((a, b) => {
@@ -604,7 +640,6 @@ function renderDetailContent(detailRow, key, roleKey) {
     });
     const finalOrder = abnormalOrder.concat(normalOrder).concat(deletedIndices);
 
-    // 渲染行
     let seq = 0;
     finalOrder.forEach(idx => {
         const item = rawRows[idx];
@@ -622,7 +657,6 @@ function renderDetailContent(detailRow, key, roleKey) {
 
         html += `<tr class="${rowClass}">`;
         if (item.deleted) {
-            // 已删除行：序号显示为“-”，操作按钮为“恢复”
             html += `<td style="color:#bbb;">-</td>`;
             displayCols.forEach(c => {
                 const val = item.row[c.colIndex] !== undefined ? String(item.row[c.colIndex]) : '';
@@ -634,7 +668,6 @@ function renderDetailContent(detailRow, key, roleKey) {
             html += `<td>${seq}</td>`;
             displayCols.forEach(c => {
                 let val = item.row[c.colIndex] !== undefined ? String(item.row[c.colIndex]) : '';
-                // 如果是链接列且异常，添加标签
                 if (isLinkColumn(c.header) && flag && flag !== 'normal') {
                     let badge = '';
                     if (flag === 'duplicate') badge = '<span class="abnormal-badge dup">重复</span>';
@@ -652,14 +685,13 @@ function renderDetailContent(detailRow, key, roleKey) {
     html += '</table>';
     detailRow.querySelector('.detail-content').innerHTML = html;
 
-    // 更新异常统计显示
     const totalAbnormal = abnormalStats.duplicate + abnormalStats.empty + abnormalStats.format;
     if (totalAbnormal > 0) {
         document.getElementById(`abnormalStats-${roleKey}-${key}`).innerHTML = 
             `⚠️ 发现 ${totalAbnormal} 条异常：<span class="abnormal-badge dup">重复 ${abnormalStats.duplicate}</span> <span class="abnormal-badge empty">空白 ${abnormalStats.empty}</span> <span class="abnormal-badge format">非http ${abnormalStats.format}</span>`;
     }
 
-    // ---- 绑定删除按钮（改为标记deleted，不移动行） ----
+    // 删除按钮
     detailRow.querySelectorAll('.delete-link-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const k = btn.dataset.key;
@@ -667,11 +699,8 @@ function renderDetailContent(detailRow, key, roleKey) {
             const idx = parseInt(btn.dataset.idx);
             const rawKey = k + '|' + role;
             if (rawDataMap[rawKey] && rawDataMap[rawKey][idx]) {
-                // 记录撤销历史
                 deleteHistory.push({ key: k, role: role, idx: idx, previousDeleted: false });
-                // 标记为已删除
                 rawDataMap[rawKey][idx].deleted = true;
-                // 更新总表统计数（减少1）
                 const parentRow = detailRow.previousElementSibling;
                 const countCell = parentRow.querySelector('.count-cell');
                 if (countCell) {
@@ -679,14 +708,12 @@ function renderDetailContent(detailRow, key, roleKey) {
                     countCell.dataset.count = newCount;
                     countCell.textContent = newCount;
                 }
-                // 更新总计行
                 const tableBody = detailRow.closest('tbody');
                 const grandTotalCell = tableBody.querySelector('.grand-total');
                 if (grandTotalCell) {
                     const total = parseInt(grandTotalCell.textContent) - 1;
                     grandTotalCell.textContent = total;
                 }
-                // 重新渲染明细（保留原位，序号重新计算）
                 renderDetailContent(detailRow, k, role);
                 showAlert('已删除该行（保留原位）');
                 undoStatus.textContent = `可撤销次数：${deleteHistory.length}`;
@@ -694,7 +721,7 @@ function renderDetailContent(detailRow, key, roleKey) {
         });
     });
 
-    // ---- 绑定恢复按钮 ----
+    // 恢复按钮
     detailRow.querySelectorAll('.restore-link').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const k = btn.dataset.key;
@@ -703,7 +730,6 @@ function renderDetailContent(detailRow, key, roleKey) {
             const rawKey = k + '|' + role;
             if (rawDataMap[rawKey] && rawDataMap[rawKey][idx]) {
                 rawDataMap[rawKey][idx].deleted = false;
-                // 更新总表统计数（增加1）
                 const parentRow = detailRow.previousElementSibling;
                 const countCell = parentRow.querySelector('.count-cell');
                 if (countCell) {
@@ -711,21 +737,19 @@ function renderDetailContent(detailRow, key, roleKey) {
                     countCell.dataset.count = newCount;
                     countCell.textContent = newCount;
                 }
-                // 更新总计行
                 const tableBody = detailRow.closest('tbody');
                 const grandTotalCell = tableBody.querySelector('.grand-total');
                 if (grandTotalCell) {
                     const total = parseInt(grandTotalCell.textContent) + 1;
                     grandTotalCell.textContent = total;
                 }
-                // 重新渲染明细
                 renderDetailContent(detailRow, k, role);
                 showAlert('已恢复该行');
             }
         });
     });
 
-    // ---- 绑定异常检测按钮 ----
+    // 异常检测按钮
     const checkBtn = document.getElementById(`checkAbnormal-${roleKey}-${key}`);
     if (checkBtn) {
         checkBtn.addEventListener('click', () => {
@@ -748,7 +772,6 @@ undoBtn.addEventListener('click', () => {
     const rawKey = key + '|' + role;
     if (rawDataMap[rawKey] && rawDataMap[rawKey][idx]) {
         rawDataMap[rawKey][idx].deleted = false;
-        // 更新统计（增加1）
         const detailRow = document.getElementById(`detail-${role}-${key}`);
         if (detailRow) {
             const parentRow = detailRow.previousElementSibling;
@@ -786,6 +809,8 @@ clearBtn.addEventListener('click', () => {
     clearBtn.disabled = true;
     resultArea.style.display = 'none';
     commonColumnToolbar.style.display = 'none';
+    extractResult.innerHTML = '';
+    copyResultBtn.style.display = 'none';
 });
 
 workFilter.addEventListener('input', filterTables);
@@ -808,8 +833,6 @@ function filterTables() {
 }
 
 cleanBtn.addEventListener('click', () => {
-    // 对rawDataMap中的所有行，将deleted=false且链接不正常的标记为deleted（简单清洗：直接删除）
-    // 这里为了简化，直接删除明细中非http/空的链接（标记为deleted）
     for (const rawKey in rawDataMap) {
         rawDataMap[rawKey].forEach(item => {
             if (item.deleted) return;
@@ -820,7 +843,6 @@ cleanBtn.addEventListener('click', () => {
             }
         });
     }
-    // 刷新所有明细
     document.querySelectorAll('.detail-btn').forEach(btn => {
         const key = btn.dataset.key;
         const roleKey = btn.dataset.role;
@@ -829,12 +851,10 @@ cleanBtn.addEventListener('click', () => {
             renderDetailContent(detailRow, key, roleKey);
         }
     });
-    // 更新总表统计数
     updateAllCounts();
     showAlert('清洗完成！已过滤非http链接和空行');
 });
 
-// 辅助：更新所有总表统计数（基于当前rawDataMap）
 function updateAllCounts() {
     document.querySelectorAll('table tbody tr:not(.detail-row)').forEach(tr => {
         const key = tr.dataset.key;
@@ -850,7 +870,6 @@ function updateAllCounts() {
             countCell.textContent = activeCount;
         }
     });
-    // 更新总计行
     document.querySelectorAll('.grand-total').forEach(cell => {
         const tableBody = cell.closest('tbody');
         let total = 0;
@@ -882,7 +901,6 @@ downloadBtn.addEventListener('click', () => {
             });
             rows.push(row);
 
-            // 添加明细（只导出未删除的行）
             const key = tr.dataset.key;
             const role = tr.dataset.roleKey;
             if (key && role && rawDataMap[key + '|' + role]) {
@@ -909,9 +927,127 @@ downloadBtn.addEventListener('click', () => {
     });
 
     if (wb.SheetNames.length === 0) { showAlert('没有可导出的数据！', true); return; }
-    XLSX.writeFile(wb, 'Excel高级汇总结果_v4.xlsx');
+    XLSX.writeFile(wb, 'Excel高级汇总结果_v5.xlsx');
     showAlert('下载成功！');
 });
+
+// ===== 【新增】提取作品链接总数 =====
+extractBtn.addEventListener('click', () => {
+    const text = workNameInput.value.trim();
+    if (!text) {
+        showAlert('请先粘贴作品列表！', true);
+        return;
+    }
+
+    // 按行分割，提取作品名（取第一个“（”之前的内容，去除空格）
+    const lines = text.split('\n').map(line => line.trim()).filter(line => line);
+    const works = [];
+    lines.forEach(line => {
+        // 匹配括号前的内容（支持中文括号或英文括号）
+        const match = line.match(/^([^（(]+)/);
+        if (match) {
+            const name = match[1].trim();
+            if (name) works.push(name);
+        }
+    });
+
+    if (works.length === 0) {
+        showAlert('未能提取到有效作品名，请检查格式（如“作品名（备注）”）', true);
+        return;
+    }
+
+    // 从所有汇总表中收集作品名和链接数
+    const workCountMap = {}; // 作品名 -> 总数（累加所有汇总表中的出现次数）
+    
+    // 遍历所有汇总表的数据行（tr有dataset.key的）
+    const allTables = tablesContainer.querySelectorAll('table');
+    allTables.forEach(table => {
+        const rows = table.querySelectorAll('tbody tr:not(.detail-row)');
+        rows.forEach(tr => {
+            const key = tr.dataset.key;
+            if (!key) return; // 跳过总计行
+            // 获取作品名（第一个td的内容）
+            const firstCell = tr.querySelector('td');
+            if (!firstCell) return;
+            const workName = firstCell.textContent.trim();
+            // 获取链接数（count-cell）
+            const countCell = tr.querySelector('.count-cell');
+            if (!countCell) return;
+            const count = parseInt(countCell.dataset.count) || 0;
+            // 累加
+            if (!workCountMap[workName]) workCountMap[workName] = 0;
+            workCountMap[workName] += count;
+        });
+    });
+
+    // 根据用户输入的顺序，查询对应的总数
+    const resultRows = [];
+    works.forEach(name => {
+        const count = workCountMap[name] !== undefined ? workCountMap[name] : 0;
+        resultRows.push({ 作品: name, 链接总数: count });
+    });
+
+    // 渲染结果表格
+    let html = '<table><tr><th>序号</th><th>作品</th><th>链接总数</th></tr>';
+    resultRows.forEach((item, index) => {
+        html += `<tr><td>${index + 1}</td><td>${item.作品}</td><td>${item.链接总数}</td></tr>`;
+    });
+    html += '</table>';
+    extractResult.innerHTML = html;
+    copyResultBtn.style.display = 'inline-block';
+    showAlert(`提取完成！共匹配 ${resultRows.length} 个作品`);
+});
+
+// 复制结果到剪贴板（适合粘贴到Excel）
+copyResultBtn.addEventListener('click', () => {
+    const table = extractResult.querySelector('table');
+    if (!table) return;
+    
+    // 提取数据：第一行表头，后续行数据
+    const rows = table.querySelectorAll('tr');
+    let text = '';
+    rows.forEach((row, index) => {
+        const cells = row.querySelectorAll('td, th');
+        const rowText = Array.from(cells).map(cell => cell.textContent.trim()).join('\t');
+        if (index === 0) {
+            text += rowText + '\n'; // 表头
+        } else {
+            // 只复制“链接总数”列（第三列），也可以复制整行，这里只复制链接总数方便直接粘贴到Excel列
+            // 用户需求：直接复制总数粘贴到excel
+            // 我们提供两个选项？简单起见，复制 作品名\t总数 到剪贴板
+            const cellsArray = Array.from(cells);
+            if (cellsArray.length >= 3) {
+                text += cellsArray[1].textContent.trim() + '\t' + cellsArray[2].textContent.trim() + '\n';
+            }
+        }
+    });
+
+    // 使用Clipboard API复制
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+            showAlert('已复制到剪贴板，可粘贴到Excel！');
+        }).catch(() => {
+            fallbackCopy(text);
+        });
+    } else {
+        fallbackCopy(text);
+    }
+});
+
+function fallbackCopy(text) {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+        document.execCommand('copy');
+        showAlert('已复制到剪贴板（备用方式）！');
+    } catch (err) {
+        showAlert('复制失败，请手动复制', true);
+    }
+    document.body.removeChild(textarea);
+}
+
 </script>
 </body>
 </html>
